@@ -1,0 +1,6 @@
+fixtures/*.dat
+node_modules/
+__pycache__/
+target/
+.env
+.DS_Store

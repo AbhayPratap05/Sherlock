@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sherlock — Bitcoin Chain Analysis</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--fg:#e6edf3;--dim:#8b949e;--accent:#1f6feb;--link:#58a6ff;--warn:#f0883e;--danger:#f85149;--success:#3fb950;--purple:#d2a8ff;--yellow:#e3b341}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);line-height:1.5}
+
+/* Layout */
+.shell{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:220px;min-width:220px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.sidebar-brand{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.sidebar-brand h1{font-size:16px;font-weight:700}
+.sidebar-brand small{font-size:10px;color:var(--dim);display:block}
+.sidebar-list{flex:1;overflow-y:auto;padding:8px}
+.sb-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);padding:8px 10px 4px}
+.sb-btn{display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:8px 10px;border-radius:6px;color:var(--fg);font-size:13px}
+.sb-btn:hover{background:rgba(255,255,255,.06)}
+.sb-btn.active{background:var(--accent);color:#fff}
+
+.content{flex:1;overflow-y:auto;padding:24px 28px}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;overflow:hidden}
+.card-hdr{padding:12px 16px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;user-select:none;background:rgba(255,255,255,.02)}
+.card-hdr:hover{background:rgba(255,255,255,.04)}
+.card-hdr .arrow{margin-left:auto;font-size:10px;color:var(--dim);transition:transform .2s}
+.card-hdr.collapsed .arrow{transform:rotate(-90deg)}
+.card-body{padding:16px}
+.card-body.flush{padding:0}
+
+/* Stat grid */
+.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.sg-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px 14px}
+.sg-item .l{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-bottom:2px}
+.sg-item .v{font-size:20px;font-weight:700}
+.sg-item .sub{font-size:10px;color:var(--dim);margin-top:2px}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:8px 12px;background:rgba(255,255,255,.03);color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border)}
+.tbl td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+.tbl tbody tr:hover td{background:rgba(255,255,255,.02)}
+.tbl tbody tr:last-child td{border-bottom:none}
+
+/* Pills */
+.pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.p-cioh{background:#2d1f0e;color:var(--warn)}
+.p-change_detection{background:#12261a;color:var(--success)}
+.p-address_reuse{background:#2d1a1a;color:var(--danger)}
+.p-coinjoin{background:#15203a;color:var(--link)}
+.p-consolidation{background:#29260e;color:var(--yellow)}
+.p-self_transfer{background:#211a30;color:var(--purple)}
+.p-round_number_payment{background:#1a2020;color:#56d364}
+
+/* Type badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.b-coinjoin{background:#15203a;color:var(--link)}
+.b-batch_payment{background:#12261a;color:#56d364}
+.b-simple_payment{background:#10282a;color:#39d353}
+.b-consolidation{background:#29260e;color:var(--yellow)}
+.b-self_transfer{background:#211a30;color:var(--purple)}
+.b-unknown{background:rgba(255,255,255,.06);color:var(--dim)}
+
+/* Bar */
+.bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px}
+.bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),#58a6ff)}
+
+/* Block rows */
+.blk-row{display:grid;grid-template-columns:50px 1fr auto auto;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;font-size:12px}
+.blk-row:hover{background:rgba(255,255,255,.02)}
+.blk-row:last-child{border-bottom:none}
+
+/* Tx rows */
+.tx-row{display:grid;grid-template-columns:1fr 100px 70px auto;gap:8px;align-items:center;padding:6px 14px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;font-size:12px}
+.tx-row:hover{background:rgba(255,255,255,.02)}
+.tx-row:last-child{border-bottom:none}
+.tx-row.flagged .txid{color:var(--warn)}
+.txid{font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--link)}
+.mono{font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;word-break:break-all;color:var(--link)}
+
+/* Modal */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto}
+.overlay.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:10px;width:100%;max-width:900px;padding:24px;margin:auto 0}
+.modal-hdr{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.modal-hdr h2{font-size:15px;flex:1}
+.modal-hdr .close-btn{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px}
+.modal-hdr .close-btn:hover{color:var(--fg);background:rgba(255,255,255,.06)}
+.back-link{font-size:12px;color:var(--link);cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-bottom:12px}
+.back-link:hover{text-decoration:underline}
+
+/* KV grid */
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:12px}
+.kv{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.kv .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.kv .v{font-size:13px;font-weight:500}
+
+/* Warning */
+.warn{background:#2d1f0e;border:1px solid rgba(240,136,62,.3);border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:var(--warn);display:flex;align-items:flex-start;gap:8px}
+
+/* Section label */
+.sec{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:600;margin:16px 0 8px}
+
+/* Note box */
+.note{font-size:11px;color:var(--dim);padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:10px}
+
+/* Loading */
+.loading{text-align:center;padding:60px;color:var(--dim)}
+.spin{display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar">
+    <div class="sidebar-brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f7931a" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 8h5M9.5 12h5M9.5 16h3.5"/></svg>
+      <div><h1>Sherlock</h1><small>Chain Analysis</small></div>
+    </div>
+    <div class="sidebar-list">
+      <div class="sb-label">Analysis Files</div>
+      <div id="file-list"></div>
+    </div>
+  </div>
+  <div class="content" id="content">
+    <div class="loading"><div class="spin"></div><p style="margin-top:12px">Loading…</p></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+"use strict";
+let D = null; // current dataset
+
+/* ── helpers ─────────────────────────────────────────────────────── */
+const $ = s => document.querySelector(s);
+const n = v => v==null ? "—" : typeof v==="number" ? v.toLocaleString() : String(v);
+const short = (h,len=18) => !h ? "—" : h.length<=len+6 ? h : h.slice(0,len)+"…"+h.slice(-6);
+const feeStr = v => (v==null||isNaN(v)) ? "0.00" : v.toFixed(2);
+
+const HDESC = {
+  cioh: "Multiple inputs likely from the same wallet",
+  change_detection: "Identifies the likely change output",
+  address_reuse: "Output address was already used as input",
+  coinjoin: "Multiple equal-value outputs — privacy mixing",
+  consolidation: "Many inputs merged into few outputs",
+  self_transfer: "All outputs match input type — internal move",
+  round_number_payment: "Output is a round BTC amount (likely payment)"
+};
+
+/* ── init ────────────────────────────────────────────────────────── */
+async function init() {
+  try {
+    const stems = await (await fetch("/api/analysis")).json();
+    const list = $("#file-list");
+    stems.forEach((s,i) => {
+      const b = document.createElement("button");
+      b.className = "sb-btn" + (i===0 ? " active" : "");
+      b.textContent = s + ".json";
+      b.onclick = () => {
+        list.querySelectorAll(".sb-btn").forEach(x=>x.classList.remove("active"));
+        b.classList.add("active");
+        load(s);
+      };
+      list.appendChild(b);
+    });
+    if (stems.length) load(stems[0]);
+  } catch(e) {
+    $("#content").innerHTML = `<div class="loading" style="color:var(--danger)">Failed to load: ${e.message}</div>`;
+  }
+}
+
+async function load(stem) {
+  $("#content").innerHTML = '<div class="loading"><div class="spin"></div><p style="margin-top:12px">Loading…</p></div>';
+  const r = await fetch("/api/analysis/" + stem);
+  D = await r.json();
+  renderDashboard();
+}
+
+/* ── dashboard ───────────────────────────────────────────────────── */
+function renderDashboard() {
+  const s = D.analysis_summary;
+  const frs = s.fee_rate_stats || {};
+  const hits = s.heuristic_hit_counts || {};
+  const hIds = s.heuristics_applied || [];
+  const sTypes = s.script_type_distribution || {};
+  const blocks = D.blocks || [];
+
+  // If no hit_counts at file level, try block[0]
+  const effectiveHits = Object.keys(hits).length ? hits :
+    (blocks[0] && blocks[0].analysis_summary && blocks[0].analysis_summary.heuristic_hit_counts) || {};
+
+  const maxHit = Math.max(1, ...Object.values(effectiveHits).map(v=>v||0));
+  const flagRate = s.total_transactions_analyzed > 0
+    ? ((s.flagged_transactions / s.total_transactions_analyzed) * 100).toFixed(1) : "0.0";
+
+  let h = "";
+
+  // ── Summary
+  h += card("📊 File Summary", `
+    <div class="sg">
+      <div class="sg-item"><div class="l">Blocks</div><div class="v">${n(D.block_count)}</div></div>
+      <div class="sg-item"><div class="l">Transactions</div><div class="v">${n(s.total_transactions_analyzed)}</div><div class="sub">in block #0</div></div>
+      <div class="sg-item"><div class="l">Flagged</div><div class="v" style="color:var(--warn)">${n(s.flagged_transactions)}</div></div>
+      <div class="sg-item"><div class="l">Flag Rate</div><div class="v">${flagRate}%</div></div>
+    </div>
+  `);
+
+  // ── Fee Rates
+  const fMin=frs.min_sat_vb||0, fMed=frs.median_sat_vb||0, fAvg=frs.mean_sat_vb||0, fMax=frs.max_sat_vb||0;
+  h += card("⚡ Fee Rate Statistics", `
+    <div class="sg">
+      <div class="sg-item"><div class="l">Minimum</div><div class="v">${feeStr(fMin)} <small style="font-size:11px;color:var(--dim)">sat/vB</small></div></div>
+      <div class="sg-item"><div class="l">Median</div><div class="v">${feeStr(fMed)} <small style="font-size:11px;color:var(--dim)">sat/vB</small></div></div>
+      <div class="sg-item"><div class="l">Average</div><div class="v">${feeStr(fAvg)} <small style="font-size:11px;color:var(--dim)">sat/vB</small></div></div>
+      <div class="sg-item"><div class="l">Maximum</div><div class="v">${feeStr(fMax)} <small style="font-size:11px;color:var(--dim)">sat/vB</small></div></div>
+    </div>
+    <div class="note">ℹ Fee rates require parsing spending amounts from rev (undo) files. The compressed-script parser for rev files is not yet implemented, so all fee rates currently show as 0. Heuristic analysis is unaffected.</div>
+  `);
+
+  // ── Heuristics
+  const hRows = (hIds.length ? hIds : Object.keys(effectiveHits)).map(k => {
+    const count = effectiveHits[k] || 0;
+    const pct = maxHit > 0 ? (count / maxHit * 100) : 0;
+    return `<tr>
+      <td><span class="pill p-${k}">${k.replace(/_/g," ")}</span></td>
+      <td style="color:var(--dim);font-size:12px">${HDESC[k]||k}</td>
+      <td><div class="bar"><div class="bar-fill" style="width:${pct.toFixed(0)}%"></div></div></td>
+      <td style="text-align:right;font-family:monospace;font-weight:600">${n(count)}</td>
+    </tr>`;
+  }).join("");
+  h += card("🔍 Heuristics Applied", `
+    <table class="tbl">
+      <thead><tr><th>Heuristic</th><th>Description</th><th style="min-width:80px">Distribution</th><th style="text-align:right">Hits</th></tr></thead>
+      <tbody>${hRows}</tbody>
+    </table>
+  `, true);
+
+  // ── Script Type Distribution
+  const stEntries = Object.entries(sTypes).sort((a,b)=>b[1]-a[1]);
+  if (stEntries.length) {
+    const stMax = Math.max(1, ...stEntries.map(e=>e[1]));
+    const stRows = stEntries.map(([k,v]) => {
+      const pct = (v/stMax*100).toFixed(0);
+      return `<tr><td style="font-family:monospace;font-size:12px">${k}</td><td><div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div></td><td style="text-align:right;font-family:monospace">${n(v)}</td></tr>`;
+    }).join("");
+    h += card("📜 Script Type Distribution", `
+      <table class="tbl"><thead><tr><th>Script Type</th><th style="min-width:80px">Distribution</th><th style="text-align:right">Count</th></tr></thead>
+      <tbody>${stRows}</tbody></table>
+    `, true);
+  }
+
+  // ── Blocks
+  const bRows = blocks.map((b,i) => {
+    const bs = b.analysis_summary || {};
+    const fl = bs.flagged_transactions || 0;
+    return `<div class="blk-row" onclick="openBlock(${i})">
+      <span style="font-family:monospace;color:var(--dim);font-size:11px">#${n(b.block_height!=null?b.block_height:i)}</span>
+      <span style="font-family:monospace;font-size:11px;color:var(--link);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.block_hash||"—"}</span>
+      <span style="color:var(--dim)">${n(b.tx_count)} txs</span>
+      <span style="color:${fl>0?'var(--warn)':'var(--dim)'}">${n(fl)} flagged</span>
+    </div>`;
+  }).join("");
+  h += card(`🧱 Blocks (${blocks.length})`, bRows, true);
+
+  $("#content").innerHTML = h;
+}
+
+function card(title, body, flush) {
+  return `<div class="card">
+    <div class="card-hdr" onclick="toggle(this)">${title}<span class="arrow">▾</span></div>
+    <div class="card-body${flush?' flush':''}">${body}</div>
+  </div>`;
+}
+
+function toggle(el) {
+  el.classList.toggle("collapsed");
+  const body = el.nextElementSibling;
+  body.style.display = el.classList.contains("collapsed") ? "none" : "";
+}
+
+/* ── block modal ─────────────────────────────────────────────────── */
+function openBlock(idx) {
+  const b = D.blocks[idx];
+  if (!b) return;
+  const txs = b.transactions || [];
+  const bs = b.analysis_summary || {};
+
+  let h = `<div class="modal-hdr"><h2>Block #${b.block_height!=null?n(b.block_height):idx}</h2><button class="close-btn" onclick="closeModal()">✕</button></div>`;
+  h += `<p class="mono" style="margin-bottom:12px">${b.block_hash||""}</p>`;
+  h += `<div class="kv-grid">
+    <div class="kv"><div class="k">Transactions</div><div class="v">${n(b.tx_count)}</div></div>
+    <div class="kv"><div class="k">Flagged</div><div class="v" style="color:var(--warn)">${n(bs.flagged_transactions||0)}</div></div>
+  </div>`;
+
+  if (!txs.length) {
+    h += `<div class="note" style="text-align:center;padding:24px">Full transaction data is only available for block #0 (first block).<br>Other blocks show aggregate stats only.</div>`;
+    showModal(h);
+    return;
+  }
+
+  // Tx list
+  const rows = txs.map((tx,ti) => {
+    const fired = getFired(tx);
+    const isFlagged = fired.length > 0;
+    const inC = tx.input_count != null ? tx.input_count : "?";
+    const outC = tx.output_count != null ? tx.output_count : "?";
+    const cls = tx.classification || "unknown";
+    const pills = fired.slice(0,3).map(k=>`<span class="pill p-${k}" style="font-size:9px;padding:1px 5px">${k.replace(/_/g," ")}</span>`).join(" ");
+    const extra = fired.length > 3 ? `<span style="color:var(--dim);font-size:10px">+${fired.length-3}</span>` : "";
+    return `<div class="tx-row${isFlagged?' flagged':''}" onclick="openTx(${idx},${ti})">
+      <span class="txid">${tx.txid||"—"}</span>
+      <span class="badge b-${cls}">${cls.replace(/_/g," ")}</span>
+      <span style="color:var(--dim)">${inC}↑ ${outC}↓</span>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;justify-content:flex-end">${pills}${extra}</div>
+    </div>`;
+  }).join("");
+
+  h += `<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:60vh;overflow-y:auto">${rows}</div>`;
+  showModal(h);
+}
+
+/* ── tx detail modal ─────────────────────────────────────────────── */
+function openTx(bi, ti) {
+  const tx = D.blocks[bi].transactions[ti];
+  if (!tx) return;
+  const fired = getFired(tx);
+  const warns = tx.warnings || [];
+
+  let h = `<div class="modal-hdr"><h2>Transaction Detail</h2><button class="close-btn" onclick="closeModal()">✕</button></div>`;
+  h += `<div class="back-link" onclick="openBlock(${bi})">← Back to block</div>`;
+  h += `<p class="mono" style="margin-bottom:14px">${tx.txid||"—"}</p>`;
+
+  // Warnings
+  warns.forEach(w => { h += `<div class="warn">⚠️ ${w}</div>`; });
+
+  // Key-value grid
+  h += `<div class="kv-grid">
+    <div class="kv"><div class="k">Classification</div><div class="v"><span class="badge b-${tx.classification||'unknown'}">${(tx.classification||"unknown").replace(/_/g," ")}</span></div></div>
+    <div class="kv"><div class="k">Active Heuristics</div><div class="v" style="display:flex;flex-wrap:wrap;gap:4px">${fired.length ? fired.map(k=>`<span class="pill p-${k}">${k.replace(/_/g," ")}</span>`).join("") : '<span style="color:var(--dim)">none</span>'}</div></div>
+    <div class="kv"><div class="k">Inputs / Outputs</div><div class="v">${tx.input_count!=null?tx.input_count:"?"} in / ${tx.output_count!=null?tx.output_count:"?"} out</div></div>
+    <div class="kv"><div class="k">Weight / vBytes</div><div class="v">${tx.weight!=null?n(tx.weight):"?"} wu / ${tx.vsize!=null?n(tx.vsize):"?"} vB</div></div>
+    <div class="kv"><div class="k">Fee Rate</div><div class="v">${tx.fee_rate&&tx.fee_rate>0 ? tx.fee_rate.toFixed(2)+" sat/vB" : "N/A"}</div></div>
+    <div class="kv"><div class="k">Coinbase</div><div class="v">${tx.is_coinbase ? "✓ Yes (block reward)" : "No"}</div></div>
+    <div class="kv"><div class="k">RBF Signaling</div><div class="v" style="color:${tx.rbf_signaling?'var(--warn)':'var(--success)'}">${tx.rbf_signaling==null?"—":tx.rbf_signaling?"Enabled (replaceable)":"Disabled"}</div></div>
+    <div class="kv"><div class="k">nLockTime</div><div class="v">${tx.timelock ? n(tx.timelock) : "0 (none)"}</div></div>
+  </div>`;
+
+  // Heuristic details
+  if (fired.length) {
+    h += `<div class="sec">Heuristic Details</div>`;
+    fired.forEach(k => {
+      const det = tx.heuristics[k];
+      const extras = Object.entries(det).filter(([key])=>key!=='detected').map(([key,val])=>`<b>${key}</b>: ${JSON.stringify(val)}`).join(" · ");
+      h += `<div style="margin-bottom:6px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <span class="pill p-${k}" style="margin-right:8px">${k.replace(/_/g," ")}</span>
+        <span style="color:var(--dim)">${extras || HDESC[k] || ""}</span>
+      </div>`;
+    });
+  }
+
+  // Inputs
+  const inputs = tx.inputs || [];
+  if (inputs.length) {
+    h += `<div class="sec">Inputs (${inputs.length})</div>`;
+    h += `<table class="tbl"><thead><tr><th>#</th><th>Previous TxID</th><th>Vout</th><th>Script Type</th><th>Sequence</th></tr></thead><tbody>`;
+    inputs.forEach((inp,i) => {
+      h += `<tr>
+        <td>${i}</td>
+        <td><span class="mono">${short(inp.txid,20)}</span></td>
+        <td>${inp.vout!=null?inp.vout:"—"}</td>
+        <td>${inp.script_type||"—"}</td>
+        <td style="font-family:monospace;font-size:11px">${inp.sequence!=null ? "0x"+inp.sequence.toString(16).padStart(8,"0") : "—"}</td>
+      </tr>`;
+    });
+    h += `</tbody></table>`;
+  }
+
+  // Outputs
+  const outputs = tx.outputs || [];
+  if (outputs.length) {
+    h += `<div class="sec">Outputs (${outputs.length})</div>`;
+    h += `<table class="tbl"><thead><tr><th>#</th><th>Value (satoshis)</th><th>Script Type</th><th>Dust?</th></tr></thead><tbody>`;
+    outputs.forEach((out,i) => {
+      h += `<tr>
+        <td>${i}</td>
+        <td style="font-family:monospace">${out.value_sat!=null?n(out.value_sat):"—"}</td>
+        <td>${out.script_type||"—"}</td>
+        <td style="color:${out.is_dust?'var(--danger)':'var(--success)'}">${out.is_dust?"⚠ dust":"✓ ok"}</td>
+      </tr>`;
+    });
+    h += `</tbody></table>`;
+  }
+
+  showModal(h);
+}
+
+/* ── modal helpers ───────────────────────────────────────────────── */
+function showModal(html) {
+  $("#modal").innerHTML = html;
+  $("#overlay").classList.add("open");
+}
+function closeModal() { $("#overlay").classList.remove("open"); }
+$("#overlay").addEventListener("click", e => { if (e.target === $("#overlay")) closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+/* ── utility ─────────────────────────────────────────────────────── */
+function getFired(tx) {
+  const h = tx.heuristics || {};
+  return Object.keys(h).filter(k => {
+    const v = h[k];
+    return v && typeof v === "object" && v.detected === true;
+  });
+}
+
+init();
+</script>
+</body>
+</html>
